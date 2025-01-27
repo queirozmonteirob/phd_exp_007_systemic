@@ -1,0 +1,361 @@
+---
+title: "Experiment 007: *Providencia rettgeri* Trajectory (RAL-821)"
+author: "by Barbara Black"
+date: "Last compiled on `r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    html_document:
+      code_folding: 
+      number_sections: true
+      toc: true
+      toc_float: true
+      toc_depth: 3
+      fig_caption: true
+      theme: united
+      css: style.css
+      highlight: zenburn
+editor_options: 
+  chunk_output_type: console
+---
+
+<style>
+
+/* Change font size of the title */
+h1.title {
+  font-size: 22px;
+}
+
+/* Define the frames */
+div.blue { background-color:#e6f0ff; border-radius: 1px; padding: 10px; }
+div.orange { background-color:#fff8dc; border-radius: 5px; padding: 20px; margin: 10px 0;}
+div.green { background-color:#00bbc6; border-radius: 5px; padding: 20px;
+  border: 1px solid #000; margin: 10px 0;}
+
+/* Headers */ 
+h1 { font-size: 18px; font-weight: bold;}
+h2 { font-size: 16px; font-weight: bold; margin: 10px 0;}
+h3 { font-size: 14px; font-weight: bold; margin: 10px 0;}
+
+/* Change font size of the table of contents */
+TOC { font-size: 12px; }
+</style>
+
+```{r setup, include=FALSE}
+## set global options
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, results = 'hide', dpi = 300)
+```
+
+# Functions and Libraries {-}
+<div class = "row">
+```{r}
+### LOAD FUNCTIONS
+### Function to change code chunk size in output
+#   Note: Automatically applied when chunk runs
+def.chunk.hook = knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x = def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+
+### Function to read contents from listed files
+#   Note: Modified from read_and_standardise() function used in survival datasets
+read_contents = function(file) {
+  df = read_csv(file.path(path, file))
+  return(df)
+}
+
+### Function to check and correct miscounted deaths
+#   Note: Use with grouped dataset and within apply()
+correct_status = function(row) {
+  status = row['status']
+  n = row['n']
+  censored = row['censored']
+  status = as.numeric(status)
+  n = as.numeric(n)
+  censored = as.numeric(censored)
+  if (status > n) {
+    return(n - censored)
+  } else {
+    return(status)
+  }
+}
+
+### Function to extract table from mixed effects model
+extract_coxme_table = function (mod){
+    beta = fixef(mod)
+    nvar = length(beta)
+    nfrail = nrow(mod$var) - nvar
+    se = sqrt(diag(mod$var)[nfrail + 1:nvar])
+    z = round(beta/se, 2)
+    p = format(as.numeric(pchisq((beta/se)^2, 1,lower.tail = FALSE)), 4)
+    table = data.frame(cbind(beta,se,z,p))
+    return(table)
+}
+
+# Function to extract survival data to plot
+ggplotprep2 <- function(x, times){
+  d <- data.frame(condition=rep(names(x$strata), x$strata), time=x$time, survival=x$surv, upper=x$upper, lower=x$lower)
+  fillup0 <- function(s) rbind(c(condition=s, time=0, survival=1, upper=1, lower=1), d[d$condition==s, ], deparse.level = 0)
+  
+  indexes <- function(x, time) {
+    if(x%in%time) return(x)
+    return(floor(time[which.min(abs(time[time<x]-x))]))
+  }
+  
+  fillup <- function(s) {
+    d.temp <- d[d$condition==s, ]
+    time <- as.numeric(d.temp$time)
+    id <- sapply(times, indexes, time=time)
+    d.temp <- d.temp[match(id, time), ]
+    d.temp$time <- times
+    return(d.temp)
+  }
+  
+  if(times[1]==0) d <- do.call("rbind", sapply(names(x$strata), fillup0, simplify=F))
+  d <- do.call("rbind", sapply(names(x$strata), fillup, simplify=F))
+  clean.name <- function(name) unlist(lapply(strsplit(as.character(name), split="="), function(x) x[2]))
+  d <- data.frame(Condition=clean.name(d$condition), Time=as.numeric(d$time), Survival=as.numeric(d$survival), upper=as.numeric(d$upper), lower=as.numeric(d$lower))
+  return(d)
+}
+
+### LOAD LIBRARIES
+library(openxlsx)
+library(survival)
+library(ggsurvfit)
+library(car)
+library(gtsummary)
+library(survminer)
+library(janitor)
+library(ggsci)
+library(ggtext)
+library(mltools)
+library(broom)
+library(coxme)
+library(formatR)
+library(tidyverse)
+library(cowplot)
+```
+</div>
+
+
+# Data Import and Reformatting {-}
+<div class = "row">
+```{r}
+### IMPORT DATA
+#   Set path and read data files
+path = here::here("data/input")
+
+data_files = list.files(path, 
+                        pattern = "*.csv")
+
+#   Standardise all columns as character variables across all data files
+data_list = data.frame(filename = data_files) %>% 
+  mutate(file_contents = map(filename, 
+                             ~ read_contents(.)))
+
+#   Unnest the data list into a single data frame
+data_raw = unnest(data_list, 
+                  cols = file_contents)
+
+#   Print the result
+print(data_raw)
+```
+
+```{r}
+### MODIFY COUNTS DATA
+data = data_raw %>% 
+  separate(`sample_ID;BLUD_or_SPBL;WELL;Volume;Dilution;BACTERIA;NA`, 
+           into = c("sample_ID", "BLUD_or_SPBL", "WELL", "Volume", "Dilution", "BACTERIA", "NA"),
+           sep = ";") 
+
+data = data %>% 
+  separate(`BLUD_or_SPBL`, into = paste0("word", 1:7), sep = "_") %>% 
+  select(!c(filename, word2, word3, word4)) %>% 
+  rename("BLUD_or_SPBL" = "word1",
+         "Time_post_injection" = "word5",
+         "DF" = "word6",
+         "Plate" = "word7") %>% 
+  mutate(Plate = paste0("Plate", sub("^0+", "", Plate)),
+         Antibiotic = "None") %>% 
+  mutate(sample_PlateID = paste(sample_ID, Plate, sep = "_")) %>% 
+  select(-sample_ID) %>% 
+  select(sample_PlateID, BLUD_or_SPBL, Plate, Antibiotic, everything()) %>% 
+  relocate(Time_post_injection, .after = last_col()) %>% 
+  mutate(Plate = sub("Plate", "", Plate)) 
+
+data_rep = data %>% 
+  group_by(Plate, DF, Time_post_injection) %>% 
+  summarise(Total = n()) %>% 
+  select(-Total) %>% 
+  group_by(DF, Time_post_injection) %>%
+  mutate(Rep = row_number())
+  
+data_join = data %>% 
+  left_join(data_rep, by = c("Plate", "DF", "Time_post_injection")) 
+
+count_data = data_join %>% 
+  select(!c(DF, Time_post_injection)) %>% 
+  relocate(Rep, .after = Antibiotic)
+
+### EXPORT COUNTS DATA
+write.csv(count_data, "data/output/COUNTS_config_007_prett_modified.csv",                       
+          row.names = FALSE)
+```
+
+```{r}
+### MODIFY PLAN DATA
+plan_data = data_join %>% 
+  rename(sample_ID = sample_PlateID) %>% 
+  mutate(Sex = if_else(grepl("^[A-D]", WELL), "Female", "Male")) %>% 
+  mutate(Age = if_else(grepl("(1|2|5|6|9|10)$", WELL), "Young", "Old")) %>% 
+  separate(WELL, into = c("Row", "Col"), sep = "(?<=\\D)(?=\\d)") %>% 
+  select(sample_ID, Sex, Time_post_injection, Plate, Row, Col, Age) %>% 
+  mutate(Col = as.numeric(Col)) %>% 
+  mutate(Time_post_injection_modified = case_when(
+    grepl("t1-t3", Time_post_injection) & Col %in% c(1, 2, 3, 4) ~ 1,
+    grepl("t1-t3", Time_post_injection) & Col %in% c(5, 6, 7, 8) ~ 2,
+    grepl("t1-t3", Time_post_injection) & Col %in% c(9, 10, 11, 12) ~ 3,
+    
+    grepl("t4-t6", Time_post_injection) & Col %in% c(1, 2, 3, 4) ~ 4,
+    grepl("t4-t6", Time_post_injection) & Col %in% c(5, 6, 7, 8) ~ 5,
+    grepl("t4-t6", Time_post_injection) & Col %in% c(9, 10, 11, 12) ~ 6,
+    
+    grepl("t7-t8", Time_post_injection) & Col %in% c(1, 2, 3, 4) ~ 7,
+    grepl("t7-t8", Time_post_injection) & Col %in% c(5, 6, 7, 8) ~ 8,
+    
+    grepl("t9-t11", Time_post_injection) & Col %in% c(1, 2, 3, 4) ~ 9,
+    grepl("t9-t11", Time_post_injection) & Col %in% c(5, 6, 7, 8) ~ 10,
+    grepl("t9-t11", Time_post_injection) & Col %in% c(9, 10, 11, 12) ~ 11,
+    
+    grepl("t12-t13", Time_post_injection) & Col %in% c(1, 2, 3, 4) ~ 12,
+    grepl("t12-t13", Time_post_injection) & Col %in% c(5, 6, 7, 8) ~ 13,
+    
+    grepl("t14-t16", Time_post_injection) & Col %in% c(1, 2, 3, 4) ~ 14,
+    grepl("t14-t16", Time_post_injection) & Col %in% c(5, 6, 7, 8) ~ 15,
+    grepl("t14-t16", Time_post_injection) & Col %in% c(9, 10, 11, 12) ~ 16,
+    
+    grepl("t24-t48", Time_post_injection) & Col %in% c(1, 2, 3, 4) ~ 24,
+    grepl("t24-t48", Time_post_injection) & Col %in% c(5, 6, 7) ~ 48,
+    grepl("t24-t48", Time_post_injection) & Col %in% c(8, 9, 10, 11) ~ 24,
+    grepl("t24-t48", Time_post_injection) & Col == 12 ~ 48)) %>% 
+  
+  mutate(Sex = case_when(Time_post_injection_modified == 48 & Row == "E" ~ "Female",
+                         TRUE ~ Sex)) %>% 
+  select(-Time_post_injection) %>% 
+  rename(Time_post_injection = Time_post_injection_modified)
+
+### EXPORT PLAN DATA
+write.csv(plan_data, "data/output/PLAN_config_007_prett_modified.csv",                       
+          row.names = FALSE)
+```
+
+```{r}
+### CHECK count_data$BACTERIA FOR NAs, ZEROES AND EMPTY ROWS 
+count_na_bacteria = which(is.na(count_data$BACTERIA))
+na_rows_bacteria = count_data[count_na_bacteria, ]  # Note: There are no rows with NAs.
+na_rows_bacteria
+
+
+
+count_zero_bacteria = which(count_data$BACTERIA == "0")
+zero_rows_bacteria = count_data[count_zero_bacteria, ] # Follow up: Do all rows where BACTERIA == 0 correspond to rows where NA == 1, and vice-versa?
+zero_rows_bacteria
+
+
+
+count_empty_bacteria = which(count_data$BACTERIA == "")
+empty_rows_bacteria = count_data[count_empty_bacteria, ] # Follow up: Do all rows where BACTERIA == "" correspond to rows where NA == "", and vice-versa?
+empty_rows_bacteria
+
+
+### CHECK count_data$`NA` FOR NAs, ZEROES AND EMPTY ROWS 
+count_na_NA = which(is.na(count_data$`NA`))
+na_rows_NA = count_data[count_na_NA, ] # Note: There are no rows with NAs.
+na_rows_NA
+
+
+
+count_zero_NA = which(count_data$`NA` == "0")
+zero_rows_NA = count_data[count_zero_NA, ] # Follow up: Do all rows where BACTERIA > 0 correspond to rows where NA == "0", and vice-versa?
+zero_rows_NA
+
+
+
+count_empty_NA = which(count_data$`NA` == "")
+empty_rows_NA = count_data[count_empty_NA, ] # Same question already asked.
+empty_rows_NA
+
+
+
+### FOLLOW UP QUESTIONS AND ANSWERS
+# Question: Do all rows where BACTERIA == 0 correspond to rows where NA == 1? (Answer: Yes)
+all(count_data$`NA`[which(count_data$BACTERIA == "0")] == 1)
+
+# Question: Do all rows where NA == 1 correspond to rows where BACTERIA == 0? (Answer: Yes)
+all(count_data$BACTERIA[which(count_data$`NA` == 1)] == "0")
+
+
+
+# Question: Do all rows where NA == "" correspond to rows where BACTERIA == ""? (Answer: Yes)
+all(count_data$BACTERIA[which(count_data$`NA` == "")] == "")
+
+# Question: Do all rows where BACTERIA == "" correspond to rows where NA == ""? (Answer: Yes)
+all(count_data$`NA`[which(count_data$BACTERIA == "")] == "")
+
+
+
+# Question: Do all rows where BACTERIA > 0 correspond to rows where NA == "0", and vice-versa? (Answer: Yes)
+all(as.numeric(count_data$`NA`)[which(as.numeric(count_data$BACTERIA) > 0)] == 0)
+
+# Question: Do all rows where NA > 0 correspond to rows where BACTERIA == "0", and vice-versa? (Answer: Yes)
+all(as.numeric(count_data$BACTERIA)[which(as.numeric(count_data$`NA`) > 0)] == 0)
+
+
+
+### CHECK PLATE NUMBERS FOR WHEN THE VALUES IN BOTH BACTERIA AND NA ARE EMPTY
+empty_bacteria_na = count_data %>% 
+  filter(BACTERIA == "" & `NA` == "") 
+
+plate_number_empty = empty_bacteria_na %>% 
+  group_by(Plate) %>% 
+  summarise()                       # Conclusion: When both BACTERIA == "" and NA == "" in a given row, that means the same as BACTERIA == "0" and NA == "1";
+                                    #             in other words, no samples were added to these wells.
+                                    #             This is only seen across A-G rows because when selecting "transfer to column" in CountDrops, 
+                                    #             the NA was originally marked in the H well (i.e., NA == "1").
+
+
+
+### CHECK PLATE NUMBERS AND REPLICATES
+count_data %>% 
+  group_by(Plate, Rep) %>% 
+  summarise()                       # Note: Plates 79 and 80 (associated with T24 and T48) only show one replicate in the dataset.
+                                    #       That is because both replicates were done in the same plate (see plate map for details).
+                                    #       Both plates are related to the same time points, but each one has a different dilution factor.
+
+```
+
+# Additional Code (Not Shared Yet)
+
+```{r, fig.dim=(5,5)}
+my_data = count_data %>% 
+  left_join(plan_data, by = join_by("sample_PlateID" == "sample_ID")) %>% 
+  select(sample_PlateID, Rep, Age, Sex, Dilution, Volume, BACTERIA, Time_post_injection) %>% 
+  mutate(across(c(Dilution, Volume, BACTERIA, Time_post_injection), as.numeric),
+         across(where(is.character), as.factor),
+         cfu_per_ml = (BACTERIA * Dilution * 1000)/(Volume * 250),
+         log2_cfu = log2(cfu_per_ml),
+         log2_cfu = ifelse(is.infinite(log2_cfu), NA, log2_cfu))
+
+my_data %>% 
+  filter(Time_post_injection < 20) %>% 
+  ggplot(aes(Time_post_injection, log2_cfu, colour = Age)) +
+  geom_point() +
+  geom_smooth() +
+  #facet_grid(~Sex) +
+  labs(x = "Time (hours post-infection)",
+       y = expression(log[2] ~ "(CFU/mL)")) +
+  scale_x_continuous(limits = c(0, 16)) +
+  scale_y_continuous(limits = c(0, 20)) +
+  theme_cowplot() +
+  theme(aspect.ratio = 1) 
+```
+
