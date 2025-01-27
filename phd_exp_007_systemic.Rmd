@@ -1,10 +1,10 @@
 ---
-title: "Experiment 007: *Providencia rettgeri* Trajectory (RAL-821)"
+title: "Experiment 007: Bacterial Trajectory Following Systemic Infection with *P. rettgeri* "
 author: "by Barbara Black"
 date: "Last compiled on `r format(Sys.time(), '%d %B, %Y')`"
 output: 
     html_document:
-      code_folding: 
+      code_folding: hide
       number_sections: true
       toc: true
       toc_float: true
@@ -44,8 +44,20 @@ TOC { font-size: 12px; }
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, results = 'hide', dpi = 300)
 ```
 
-# Functions and Libraries {-}
-<div class = "row">
+```{r git-setup}
+# # Initialise a local Git repo
+# usethis::use_git()
+# 
+# # Connect local Git repo to GitHub
+# usethis::use_github()
+```
+
+# Background 
+
+# Code {.tabset}
+
+## Functions
+
 ```{r}
 ### LOAD FUNCTIONS
 ### Function to change code chunk size in output
@@ -116,7 +128,11 @@ ggplotprep2 <- function(x, times){
   d <- data.frame(Condition=clean.name(d$condition), Time=as.numeric(d$time), Survival=as.numeric(d$survival), upper=as.numeric(d$upper), lower=as.numeric(d$lower))
   return(d)
 }
+```
 
+## Libraries
+
+```{r}
 ### LOAD LIBRARIES
 library(openxlsx)
 library(survival)
@@ -134,11 +150,9 @@ library(formatR)
 library(tidyverse)
 library(cowplot)
 ```
-</div>
 
+## Data Import and Processing
 
-# Data Import and Reformatting {-}
-<div class = "row">
 ```{r}
 ### IMPORT DATA
 #   Set path and read data files
@@ -333,9 +347,9 @@ count_data %>%
 
 ```
 
-# Additional Code (Not Shared Yet)
+# Bacterial Trajectory
 
-```{r, fig.dim=(5,5)}
+```{r, fig.dim = c(4,4), fig.align='center', out.width="60%"}
 my_data = count_data %>% 
   left_join(plan_data, by = join_by("sample_PlateID" == "sample_ID")) %>% 
   select(sample_PlateID, Rep, Age, Sex, Dilution, Volume, BACTERIA, Time_post_injection) %>% 
@@ -348,12 +362,13 @@ my_data = count_data %>%
 my_data %>% 
   filter(Time_post_injection < 20) %>% 
   ggplot(aes(Time_post_injection, log2_cfu, colour = Age)) +
-  geom_point() +
+  geom_point(alpha = 0.5) +
   geom_smooth() +
   #facet_grid(~Sex) +
   labs(x = "Time (hours post-infection)",
        y = expression(log[2] ~ "(CFU/mL)")) +
-  scale_x_continuous(limits = c(0, 16)) +
+  scale_x_continuous(limits = c(0, 16),
+                     breaks = c(seq(0, 16, by = 2))) +
   scale_y_continuous(limits = c(0, 20)) +
   theme_cowplot() +
   theme(aspect.ratio = 1) 
