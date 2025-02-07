@@ -348,11 +348,15 @@ count_data %>%
 ```
 
 ```{r, new-sample-ID}
+### CREATE JOINED DATASET
 joined_data = count_data %>% 
   left_join(plan_data, by = join_by("sample_PlateID" == "sample_ID")) %>% 
   select(-Plate.y) %>% 
   rename(Plate = Plate.x) %>% 
   mutate(Well_with_sample = ifelse(`BACTERIA` == "" & `NA` == "", "No", "Yes"),
         sample_ID_new = paste(WELL, Time_post_injection, sep = "_Time_post_injection_"))
+
+write.csv(plan_data, "data/output/JOINED_config_007_prett.csv",
+          row.names = FALSE)
 ```
 
