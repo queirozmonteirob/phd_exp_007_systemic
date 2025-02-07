@@ -359,4 +359,3 @@ joined_data = count_data %>%
 write.csv(joined_data, "data/output/JOINED_config_007_prett.csv",
           row.names = FALSE)
 ```
-
