@@ -219,9 +219,9 @@ write.csv(count_data, "data/output/COUNTS_config_007_prett_modified.csv",
 ### MODIFY PLAN DATA
 plan_data = data_join %>% 
   rename(sample_ID = sample_PlateID) %>% 
-  mutate(Sex = if_else(grepl("^[A-D]", WELL), "Female", "Male")) %>% 
-  mutate(Age = if_else(grepl("(1|2|5|6|9|10)$", WELL), "Young", "Old")) %>% 
   separate(WELL, into = c("Row", "Col"), sep = "(?<=\\D)(?=\\d)") %>% 
+  mutate(Sex = if_else(Row %in% c("A", "B", "C", "D"), "Female", "Male"),
+         Age = if_else(Col %in% c(1, 2, 5, 6, 9, 10), "Young", "Old")) %>% 
   select(sample_ID, Sex, Time_post_injection, Plate, Row, Col, Age) %>% 
   mutate(Col = as.numeric(Col)) %>% 
   mutate(Time_post_injection_modified = case_when(
@@ -253,12 +253,12 @@ plan_data = data_join %>%
     grepl("t24-t48", Time_post_injection) & Col == 12 ~ 48)) %>% 
   
   mutate(Sex = case_when(Time_post_injection_modified == 48 & Row == "E" ~ "Female",
-                         TRUE ~ Sex)) %>% 
-  select(-Time_post_injection) %>% 
+  TRUE ~ Sex)) %>%
+  select(-Time_post_injection) %>%
   rename(Time_post_injection = Time_post_injection_modified)
 
-### EXPORT PLAN DATA
-write.csv(plan_data, "data/output/PLAN_config_007_prett_modified.csv",                       
+## EXPORT PLAN DATA
+write.csv(plan_data, "data/output/PLAN_config_007_prett_modified.csv",
           row.names = FALSE)
 ```
 
@@ -352,6 +352,7 @@ joined_data = count_data %>%
   left_join(plan_data, by = join_by("sample_PlateID" == "sample_ID")) %>% 
   select(-Plate.y) %>% 
   rename(Plate = Plate.x) %>% 
-  mutate(sample_ID_new = paste(WELL, Time_post_injection, sep = "_Time_post_injection_"))
+  mutate(Well_with_sample = ifelse(`BACTERIA` == "" & `NA` == "", "No", "Yes"),
+        sample_ID_new = paste(WELL, Time_post_injection, sep = "_Time_post_injection_"))
 ```
 
