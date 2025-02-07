@@ -356,7 +356,7 @@ joined_data = count_data %>%
   mutate(Well_with_sample = ifelse(`BACTERIA` == "" & `NA` == "", "No", "Yes"),
         sample_ID_new = paste(WELL, Time_post_injection, sep = "_Time_post_injection_"))
 
-write.csv(plan_data, "data/output/JOINED_config_007_prett.csv",
+write.csv(joined_data, "data/output/JOINED_config_007_prett.csv",
           row.names = FALSE)
 ```
 
