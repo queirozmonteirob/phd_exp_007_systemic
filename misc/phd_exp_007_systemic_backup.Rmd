@@ -262,13 +262,98 @@ write.csv(plan_data, "data/output/PLAN_config_007_prett_modified.csv",
           row.names = FALSE)
 ```
 
+```{r}
+### CHECK count_data$BACTERIA FOR NAs, ZEROES AND EMPTY ROWS 
+count_na_bacteria = which(is.na(count_data$BACTERIA))
+na_rows_bacteria = count_data[count_na_bacteria, ]  # Note: There are no rows with NAs.
+na_rows_bacteria
+
+
+
+count_zero_bacteria = which(count_data$BACTERIA == "0")
+zero_rows_bacteria = count_data[count_zero_bacteria, ] # Follow up: Do all rows where BACTERIA == 0 correspond to rows where NA == 1, and vice-versa?
+zero_rows_bacteria
+
+
+
+count_empty_bacteria = which(count_data$BACTERIA == "")
+empty_rows_bacteria = count_data[count_empty_bacteria, ] # Follow up: Do all rows where BACTERIA == "" correspond to rows where NA == "", and vice-versa?
+empty_rows_bacteria
+
+
+### CHECK count_data$`NA` FOR NAs, ZEROES AND EMPTY ROWS 
+count_na_NA = which(is.na(count_data$`NA`))
+na_rows_NA = count_data[count_na_NA, ] # Note: There are no rows with NAs.
+na_rows_NA
+
+
+
+count_zero_NA = which(count_data$`NA` == "0")
+zero_rows_NA = count_data[count_zero_NA, ] # Follow up: Do all rows where BACTERIA > 0 correspond to rows where NA == "0", and vice-versa?
+zero_rows_NA
+
+
+
+count_empty_NA = which(count_data$`NA` == "")
+empty_rows_NA = count_data[count_empty_NA, ] # Same question already asked.
+empty_rows_NA
+
+
+
+### FOLLOW UP QUESTIONS AND ANSWERS
+# Question: Do all rows where BACTERIA == 0 correspond to rows where NA == 1? (Answer: Yes)
+all(count_data$`NA`[which(count_data$BACTERIA == "0")] == 1)
+
+# Question: Do all rows where NA == 1 correspond to rows where BACTERIA == 0? (Answer: Yes)
+all(count_data$BACTERIA[which(count_data$`NA` == 1)] == "0")
+
+
+
+# Question: Do all rows where NA == "" correspond to rows where BACTERIA == ""? (Answer: Yes)
+all(count_data$BACTERIA[which(count_data$`NA` == "")] == "")
+
+# Question: Do all rows where BACTERIA == "" correspond to rows where NA == ""? (Answer: Yes)
+all(count_data$`NA`[which(count_data$BACTERIA == "")] == "")
+
+
+
+# Question: Do all rows where BACTERIA > 0 correspond to rows where NA == "0", and vice-versa? (Answer: Yes)
+all(as.numeric(count_data$`NA`)[which(as.numeric(count_data$BACTERIA) > 0)] == 0)
+
+# Question: Do all rows where NA > 0 correspond to rows where BACTERIA == "0", and vice-versa? (Answer: Yes)
+all(as.numeric(count_data$BACTERIA)[which(as.numeric(count_data$`NA`) > 0)] == 0)
+
+
+
+### CHECK PLATE NUMBERS FOR WHEN THE VALUES IN BOTH BACTERIA AND NA ARE EMPTY
+empty_bacteria_na = count_data %>% 
+  filter(BACTERIA == "" & `NA` == "") 
+
+plate_number_empty = empty_bacteria_na %>% 
+  group_by(Plate) %>% 
+  summarise()                       # Conclusion: When both BACTERIA == "" and NA == "" in a given row, that means the same as BACTERIA == "0" and NA == "1";
+                                    #             in other words, no samples were added to these wells.
+                                    #             This is only seen across A-G rows because when selecting "transfer to column" in CountDrops, 
+                                    #             the NA was originally marked in the H well (i.e., NA == "1").
+
+
+
+### CHECK PLATE NUMBERS AND REPLICATES
+count_data %>% 
+  group_by(Plate, Rep) %>% 
+  summarise()                       # Note: Plates 79 and 80 (associated with T24 and T48) only show one replicate in the dataset.
+                                    #       That is because both replicates were done in the same plate (see plate map for details).
+                                    #       Both plates are related to the same time points, but each one has a different dilution factor.
+
+```
+
 ```{r, new-sample-ID}
 ### CREATE JOINED DATASET
 joined_data = count_data %>% 
   left_join(plan_data, by = join_by("sample_PlateID" == "sample_ID")) %>% 
   select(-Plate.y) %>% 
   rename(Plate = Plate.x) %>% 
-  mutate(Well_with_sample = ifelse(`BACTERIA` == 0 & `NA` == 0, "No", "Yes"),
+  mutate(Well_with_sample = ifelse(`BACTERIA` == "" & `NA` == "", "No", "Yes"),
         sample_ID_new = paste(WELL, Time_post_injection, sep = "_Time_post_injection_"))
 
 write.csv(joined_data, "data/output/JOINED_config_007_prett.csv",
